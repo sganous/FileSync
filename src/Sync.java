@@ -1,7 +1,12 @@
 import java.io.*;
 import java.net.*;
+import java.util.HashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class Sync {
+
 
     public static void main(String[] args) throws Exception {
 
@@ -13,6 +18,11 @@ public class Sync {
 
         Socket senderSocket;
         ServerSocket listenerSocket;
+
+        ReentrantLock lock = new ReentrantLock();
+
+        HashMap<String, Long> fileTimestampsOld = null;
+        HashMap<String, Long> fileTimestampsNew = null;
 
         if(args.length < 3) {
 //           System.out.println("Usage: java Sync [IP] [Port] [DirectoryPath]")
@@ -28,8 +38,12 @@ public class Sync {
         directoryName = pwd + "/" + directoryName;
 
         //Thread to listen and handle incoming data on port
-        Thread portListener = new ListenerWorker(portNumber, directoryName);
+        Thread portListener = new ListenerWorker(portNumber, directoryName, lock);
         portListener.start();
+
+
+        //Store a copy of current directory timestamps
+        fileTimestampsOld = generateFileTimestamps(directoryName);
 
         while (true) {
             //Establish Connection
@@ -41,9 +55,35 @@ public class Sync {
             }
 
             //while loop to wait for file changes
-
+            boolean filesNotChanged = true;
+            while(filesNotChanged) {
+                Thread.sleep(5000);
+                lock.lock();
+                try {
+                    fileTimestampsNew = generateFileTimestamps(directoryName);
+                    //Check for more or less files
+                    if (fileTimestampsOld.size() != fileTimestampsNew.size()) {
+                        filesNotChanged = false;
+                    }
+                    for (String key : fileTimestampsOld.keySet()) {
+                        //Checks if old file still in new direcotry
+                        if (fileTimestampsNew.containsKey(key)) {
+                            //Checks if file has been updated
+                            if (fileTimestampsOld.get(key) != fileTimestampsNew.get(key)) {
+                                filesNotChanged = false;
+                                break;
+                            }
+                        } else {
+                            filesNotChanged = false;
+                            break;
+                        }
+                    }
+                } finally {
+                    lock.unlock();
+                }
+            }
             //update bufferDirectory
-
+            fileTimestampsOld = fileTimestampsNew;
         }
     }
 
@@ -106,6 +146,22 @@ public class Sync {
 
         return connection;
     }
+
+    /**
+     * Creates a hash table of file names and their last modified dates in a given directory.
+     *
+     * @param directoryName Directory path
+     * @return HashMap<String, Long>
+     */
+    public static HashMap generateFileTimestamps( String directoryName ) {
+
+        HashMap<String, Long> fileTimestamps = new HashMap();
+        File[] files = new File(directoryName).listFiles();
+        for ( File file : files ) {
+            fileTimestamps.put(file.getName(), file.lastModified());
+        }
+        return fileTimestamps;
+    }
 }
 
 class ListenerWorker extends Thread {
@@ -113,10 +169,12 @@ class ListenerWorker extends Thread {
     int portNumber;
     Socket connectionSocket;
     ServerSocket serverSocket;
+    Lock lock;
 
-    public ListenerWorker(Integer portNumber, String dirName) {
+    public ListenerWorker(Integer portNumber, String dirName, Lock lock) {
         this.dirName = dirName;
         this.portNumber = portNumber;
+        this.lock = lock;
     }
 
     public void run() {
@@ -128,39 +186,46 @@ class ListenerWorker extends Thread {
             while (true) {
 
                 connectionSocket = serverSocket.accept();
-                //Triggers when data is received
-                BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
-                DataInputStream dataIS = new DataInputStream(bufferIS);
 
-                //Create directory if doesn't exist
-                File directory = new File(dirName);
-                directory.mkdir();
+                lock.lock();
+                try {
 
-                //Create list of files equal to that being passed in
-                int numberOfFiles = dataIS.readInt();
-                File[] files = new File[numberOfFiles];
+                    //Triggers when data is received
+                    BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
+                    DataInputStream dataIS = new DataInputStream(bufferIS);
 
-                //For every file in list
-                for (int i = 0; i < numberOfFiles; i++) {
-                    long fileLength = dataIS.readLong();
-                    String fileName = dataIS.readUTF();
+                    //Create directory if doesn't exist
+                    File directory = new File(dirName);
+                    directory.mkdir();
 
-                    //Create new file
-                    files[i] = new File(dirName + "/" + fileName);
-                    files[i].createNewFile();
+                    //Create list of files equal to that being passed in
+                    int numberOfFiles = dataIS.readInt();
+                    File[] files = new File[numberOfFiles];
 
-                    FileOutputStream fileOS = new FileOutputStream(files[i]);
-                    BufferedOutputStream bufferOS = new BufferedOutputStream(fileOS);
+                    //For every file in list
+                    for (int i = 0; i < numberOfFiles; i++) {
+                        long fileLength = dataIS.readLong();
+                        String fileName = dataIS.readUTF();
 
-                    //Write data bytes from port to file
-                    for (int j = 0; j < fileLength; j++) {
-                        bufferOS.write(bufferIS.read());
+                        //Create new file
+                        files[i] = new File(dirName + "/" + fileName);
+                        files[i].createNewFile();
+
+                        FileOutputStream fileOS = new FileOutputStream(files[i]);
+                        BufferedOutputStream bufferOS = new BufferedOutputStream(fileOS);
+
+                        //Write data bytes from port to file
+                        for (int j = 0; j < fileLength; j++) {
+                            bufferOS.write(bufferIS.read());
+                        }
+                        bufferOS.close();
+                        fileOS.close();
                     }
-                    bufferOS.close();
-                    fileOS.close();
+                    bufferIS.close();
+                    dataIS.close();
+                } finally {
+                    lock.unlock();
                 }
-                bufferIS.close();
-                dataIS.close();
             }
         } catch (Exception excep) {
             System.out.println("Failed to write directory:" + excep);
