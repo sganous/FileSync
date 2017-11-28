@@ -14,10 +14,10 @@ public class Sync {
         Socket senderSocket;
         ServerSocket listenerSocket;
 
-         if(args.length < 3) {
+        if(args.length < 3) {
 //           System.out.println("Usage: java Sync [IP] [Port] [DirectoryPath]")
-             System.out.println("Not Enough args");
-         }
+            System.out.println("Not Enough args");
+        }
 
         hostIP = (args[0] == null) ? "127.0.0.1" : args[0];
         portNumber = (args[1] == null) ? 9999 : Integer.parseInt(args[1]);
@@ -84,6 +84,8 @@ public class Sync {
                 // bufferOS.write(data, 0, fileEnd);
                 // bufferOS.flush();
             }
+            dataOS.close();
+            bufferOS.close();
         } catch (Exception e) {
             System.out.println("Failed to send file: " + e);
         }
@@ -120,46 +122,46 @@ class ListenerWorker extends Thread {
     public void run() {
 
         try {
-        //Waits for data to come across port
+            //Waits for data to come across port
             serverSocket = establishListener(portNumber);
-            connectionSocket = serverSocket.accept();
 
-        while (true) {
+            while (true) {
 
-            //Triggers when data is received
-            BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
-            DataInputStream dataIS = new DataInputStream(bufferIS);
+                connectionSocket = serverSocket.accept();
+                //Triggers when data is received
+                BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
+                DataInputStream dataIS = new DataInputStream(bufferIS);
 
-            //Create directory if doesn't exist
-            File directory = new File(dirName);
-            directory.mkdir();
+                //Create directory if doesn't exist
+                File directory = new File(dirName);
+                directory.mkdir();
 
-            //Create list of files equal to that being passed in
-            int numberOfFiles = dataIS.readInt();
-            File[] files = new File[numberOfFiles];
+                //Create list of files equal to that being passed in
+                int numberOfFiles = dataIS.readInt();
+                File[] files = new File[numberOfFiles];
 
-            //For every file in list
-            for (int i = 0; i < numberOfFiles; i++) {
-                long fileLength = dataIS.readLong();
-                String fileName = dataIS.readUTF();
+                //For every file in list
+                for (int i = 0; i < numberOfFiles; i++) {
+                    long fileLength = dataIS.readLong();
+                    String fileName = dataIS.readUTF();
 
-                //Create new file
-                files[i] = new File(dirName + "/" + fileName);
-                files[i].createNewFile();
+                    //Create new file
+                    files[i] = new File(dirName + "/" + fileName);
+                    files[i].createNewFile();
 
-                FileOutputStream fileOS = new FileOutputStream(files[i]);
-                BufferedOutputStream bufferOS = new BufferedOutputStream(fileOS);
+                    FileOutputStream fileOS = new FileOutputStream(files[i]);
+                    BufferedOutputStream bufferOS = new BufferedOutputStream(fileOS);
 
-                //Write data bytes from port to file
-                for (int j = 0; j < fileLength; j++) {
-                    bufferOS.write(bufferIS.read());
+                    //Write data bytes from port to file
+                    for (int j = 0; j < fileLength; j++) {
+                        bufferOS.write(bufferIS.read());
+                    }
+                    bufferOS.close();
+                    fileOS.close();
                 }
-                bufferOS.close();
-                fileOS.close();
+                bufferIS.close();
+                dataIS.close();
             }
-            bufferIS.close();
-            dataIS.close();
-        }
         } catch (Exception excep) {
             System.out.println("Failed to write directory:" + excep);
         }
