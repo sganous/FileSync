@@ -9,17 +9,23 @@ public class Sync {
         int portNumber;
 
         String directoryName;
+        String pwd;
 
         Socket senderSocket;
         ServerSocket listenerSocket;
 
-        // if(args.length = 0) {
-        //   System.out.println("Usage: java Sync [IP] [Port] [DirectoryPath]")
-        // }
+         if(args.length < 3) {
+//           System.out.println("Usage: java Sync [IP] [Port] [DirectoryPath]")
+             System.out.println("Not Enough args");
+         }
 
         hostIP = (args[0] == null) ? "127.0.0.1" : args[0];
         portNumber = (args[1] == null) ? 9999 : Integer.parseInt(args[1]);
-        directoryName = (args[2] == null) ? "~/test" : args[3];
+        directoryName = (args[2] == null) ? "test" : args[2];
+
+        pwd = System.getProperty("user.dir");
+
+        directoryName = pwd + "/" + directoryName;
 
         //Thread to listen and handle incoming data on port
         Thread portListener = new ListenerWorker(portNumber, directoryName);
@@ -115,7 +121,8 @@ class ListenerWorker extends Thread {
 
         try {
         //Waits for data to come across port
-        connectionSocket = serverSocket.accept();
+            serverSocket = establishListener(portNumber);
+            connectionSocket = serverSocket.accept();
 
         while (true) {
 
@@ -154,7 +161,7 @@ class ListenerWorker extends Thread {
             dataIS.close();
         }
         } catch (Exception excep) {
-            System.out.println("Failed to write directory:" + excep.getMessage());
+            System.out.println("Failed to write directory:" + excep);
         }
     }
 
