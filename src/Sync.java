@@ -192,9 +192,14 @@ class ListenerWorker extends Thread {
                 BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
                 DataInputStream dataIS = new DataInputStream(bufferIS);
 
-                //Create directory if doesn't exist
+                //Create directory if doesn't exist and cleanse
                 File directory = new File(dirName);
                 directory.mkdir();
+                for(File file: directory.listFiles()){
+                    if (!file.isDirectory()){
+                        file.delete();
+                    }
+                }
 
                 //Create list of files equal to that being passed in
                 int numberOfFiles = dataIS.readInt();
