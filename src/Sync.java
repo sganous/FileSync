@@ -7,7 +7,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class Sync {
 
-
     public static void main(String[] args) throws Exception {
 
         String hostIP;
@@ -23,11 +22,6 @@ public class Sync {
 
         HashMap<String, Long> fileTimestampsOld = null;
         HashMap<String, Long> fileTimestampsNew = null;
-
-        if(args.length < 3) {
-//           System.out.println("Usage: java Sync [IP] [Port] [DirectoryPath]")
-            System.out.println("Not Enough args");
-        }
 
         hostIP = (args[0] == null) ? "127.0.0.1" : args[0];
         portNumber = (args[1] == null) ? 9999 : Integer.parseInt(args[1]);
@@ -47,9 +41,8 @@ public class Sync {
 
         while (true) {
             //Establish Connection
-            //Connct to remote server
             senderSocket = establishConnection(hostIP, portNumber);
-            ////Send Direcotry
+            //Send Direcotry if successfull connection
             if (senderSocket != null) {
                 sendFiles(directoryName, senderSocket);
             }
@@ -57,7 +50,6 @@ public class Sync {
             //while loop to wait for file changes
             boolean filesNotChanged = true;
             while(filesNotChanged) {
-                Thread.sleep(5000);
                 lock.lock();
                 try {
                     fileTimestampsNew = generateFileTimestamps(directoryName);
@@ -80,6 +72,7 @@ public class Sync {
                     }
                 } finally {
                     lock.unlock();
+                    Thread.sleep(5000);
                 }
             }
             //update bufferDirectory
@@ -88,16 +81,19 @@ public class Sync {
     }
 
     /**
-     * Reads the directory and sends the data to the remote host socket
-     *
-     * @throws Exception
-     */
+    * Reads files from a directory and sends the data to a remote host socket
+    *
+    * @throws IOException
+    * @throws FileNotFoundException
+    */
     public static void sendFiles( String directoryName, Socket senderSocket) {
+        BufferedOutputStream bufferOS = null;
+        DataOutputStream dataOS = null;
         try {
             File[] files = new File(directoryName).listFiles();
 
-            BufferedOutputStream bufferOS = new BufferedOutputStream(senderSocket.getOutputStream());
-            DataOutputStream dataOS = new DataOutputStream(bufferOS);
+            bufferOS = new BufferedOutputStream(senderSocket.getOutputStream());
+            dataOS = new DataOutputStream(bufferOS);
 
             //Write number of files
             dataOS.writeInt(files.length);
@@ -118,24 +114,21 @@ public class Sync {
 
                 fileIS.close();
                 bufferIS.close();
-                // int size = 9022386;
-                // byte[] data = new byte[size];
-                // int fileEnd = bufferIS.read(data, 0, data.length);
-                // bufferOS.write(data, 0, fileEnd);
-                // bufferOS.flush();
             }
             dataOS.close();
             bufferOS.close();
-        } catch (Exception e) {
-            System.out.println("Failed to send file: " + e);
+        } catch (FileNotFoundException e) {
+            System.err.println("Failed to open directory: " + directoryName);
+        } catch (IOException e) {
+            System.err.println("Failed to handle file: " + e.getMessage());
         }
     }
 
     /**
-     * Establishes connection with remote host
-     *
-     * @return Successful Socket connection to remote host
-     */
+    * Establishes connection with remote host.
+    *
+    * @return Socket connection to remote host.
+    */
     public static Socket establishConnection( String hostIP, Integer portNumber) {
         Socket connection = null;
         try {
@@ -143,18 +136,16 @@ public class Sync {
         } catch (Exception e) {
             return null;
         }
-
         return connection;
     }
 
     /**
-     * Creates a hash table of file names and their last modified dates in a given directory.
-     *
-     * @param directoryName Directory path
-     * @return HashMap<String, Long>
-     */
+    * Creates a hash table of file names and their last modified dates in a given directory.
+    *
+    * @param directoryName Directory path.
+    * @return HashMap<String, Long> of fileName and timestamp.
+    */
     public static HashMap generateFileTimestamps( String directoryName ) {
-
         HashMap<String, Long> fileTimestamps = new HashMap();
         File[] files = new File(directoryName).listFiles();
         for ( File file : files ) {
@@ -164,6 +155,9 @@ public class Sync {
     }
 }
 
+/**
+* Thread that handles listening to a local socket and handling incoming data.
+*/
 class ListenerWorker extends Thread {
     String dirName;
     int portNumber;
@@ -171,79 +165,84 @@ class ListenerWorker extends Thread {
     ServerSocket serverSocket;
     Lock lock;
 
+    /**
+    * @param portNumber current connected port.
+    * @param dirName working directory.
+    * @param lock Global lock on for concurrency on reading file timestamps.
+    */
     public ListenerWorker(Integer portNumber, String dirName, Lock lock) {
         this.dirName = dirName;
         this.portNumber = portNumber;
         this.lock = lock;
     }
 
+    /**
+    * Establishes a listener on portNumber and writes the incoming file data
+    * to dirName.
+    */
     public void run() {
-
         try {
             //Waits for data to come across port
-            serverSocket = establishListener(portNumber);
-
+            serverSocket = establishListener();
             while (true) {
-
+                //Accept connection and lock critial section
                 connectionSocket = serverSocket.accept();
-
                 lock.lock();
-                try {
+                //Triggers when data is received
+                BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
+                DataInputStream dataIS = new DataInputStream(bufferIS);
 
-                    //Triggers when data is received
-                    BufferedInputStream bufferIS = new BufferedInputStream(connectionSocket.getInputStream());
-                    DataInputStream dataIS = new DataInputStream(bufferIS);
+                //Create directory if doesn't exist
+                File directory = new File(dirName);
+                directory.mkdir();
 
-                    //Create directory if doesn't exist
-                    File directory = new File(dirName);
-                    directory.mkdir();
+                //Create list of files equal to that being passed in
+                int numberOfFiles = dataIS.readInt();
+                File[] files = new File[numberOfFiles];
 
-                    //Create list of files equal to that being passed in
-                    int numberOfFiles = dataIS.readInt();
-                    File[] files = new File[numberOfFiles];
+                //For every file in list
+                for (int i = 0; i < numberOfFiles; i++) {
+                    long fileLength = dataIS.readLong();
+                    String fileName = dataIS.readUTF();
 
-                    //For every file in list
-                    for (int i = 0; i < numberOfFiles; i++) {
-                        long fileLength = dataIS.readLong();
-                        String fileName = dataIS.readUTF();
+                    //Create new file
+                    files[i] = new File(dirName + "/" + fileName);
+                    files[i].createNewFile();
 
-                        //Create new file
-                        files[i] = new File(dirName + "/" + fileName);
-                        files[i].createNewFile();
+                    FileOutputStream fileOS = new FileOutputStream(files[i]);
+                    BufferedOutputStream bufferOS = new BufferedOutputStream(fileOS);
 
-                        FileOutputStream fileOS = new FileOutputStream(files[i]);
-                        BufferedOutputStream bufferOS = new BufferedOutputStream(fileOS);
-
-                        //Write data bytes from port to file
-                        for (int j = 0; j < fileLength; j++) {
-                            bufferOS.write(bufferIS.read());
-                        }
-                        bufferOS.close();
-                        fileOS.close();
+                    //Write data bytes from port to file
+                    for (int j = 0; j < fileLength; j++) {
+                        bufferOS.write(bufferIS.read());
                     }
-                    bufferIS.close();
-                    dataIS.close();
-                } finally {
-                    lock.unlock();
+                    bufferOS.close();
+                    fileOS.close();
                 }
+
+                bufferIS.close();
+                dataIS.close();
+                lock.unlock();
             }
-        } catch (Exception excep) {
-            System.out.println("Failed to write directory:" + excep);
+        } catch (FileNotFoundException e) {
+            System.err.println("Failed to write directory: " + dirName);
+        } catch (IOException e) {
+            System.err.println("Failed to open IO streams: " + e.getMessage());
         }
     }
 
     /**
-     * Establishes connection to local port
-     * @return Successful Socket to local port
-     */
-    public static ServerSocket establishListener(int portNumber){
+    * Establishes connection to local server port.
+    * @throws IOException
+    * @return Socket to local server port.
+    */
+    public ServerSocket establishListener() {
         ServerSocket serverSocket = null;
         try{
             serverSocket = new ServerSocket(portNumber);
-        } catch(Exception e) {
-            System.out.println("Failed to connect to local port: "+portNumber);
+        } catch(IOException e) {
+            System.err.println("Failed to connect to local port: " + portNumber);
         }
         return serverSocket;
     }
-
 }
