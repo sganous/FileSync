@@ -61,7 +61,8 @@ public class Sync {
                         //Checks if old file still in new direcotry
                         if (fileTimestampsNew.containsKey(key)) {
                             //Checks if file has been updated
-                            if (fileTimestampsOld.get(key) != fileTimestampsNew.get(key)) {
+                            long sample = fileTimestampsOld.get(key);
+                            if (fileTimestampsOld.get(key).compareTo(fileTimestampsNew.get(key)) != 0) {
                                 filesNotChanged = false;
                                 break;
                             }
