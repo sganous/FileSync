@@ -15,6 +15,10 @@ When we connect to a network (a router), we get an IP from the router, which is 
 
 An instance of our application will run on system A and perform setup operations. This includes getting user input (IP of other system, mutual port, working directory) and saving the file timestamps in a HashTable structure. The setup also involves starting a listener worker (thread) who’s sole job is to detect any incoming data and write it to the system’s directory. The main method will continue and await a connection from another system on the network. Once the program runs on system B, a connection condition is met within the code and B will start sending existing files in its directory to be intercepted by the worker’s blocking call. The directories on both system could be empty initially, meaning the workers will not write anything. Both programs are now looping to monitor for file changes by the user by comparing its original file timestamps with new timestamps. Say a user modifies a file on system A, the program’s inner while loop will break due to a timestamp difference and it will send the new contents. Timestamps are also updated in the process. B’s worker will intercept and update B’s directory. The cycle repeats to emulate a synchronized directory on both systems.
 
+**Challenges**
+
+Our primary challenge was deciding how to implement both, a client and a server under the same program.  The client and server need to be running asynchronously because they have two different tasks that are running at the same time.  The server needs to listen to the local ports and the client needs to check the changes to the directory and send those changes.  We decided to implement a thread that would run separate from the main process that would act as our server and listen to the local port as well as handle the incoming data, allowing the main program to act as our client and simply focus on processing any file changes and sending them to the remote server.
+
 **Usage**
 
 * Compile the program:
